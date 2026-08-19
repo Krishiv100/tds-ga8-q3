@@ -59,14 +59,12 @@ function isPolicyValid(p) {
 app.post('/promote', (req, res) => {
   try {
     const b = req.body;
-
-    // ONLY trigger INVALID_INPUT for the explicitly requested cases:
-    // "A missing policy, non-array versions, or non-string championVersion returns HTTP 400 with exactly {"error":"INVALID_INPUT"}."
+    
     if (!b || typeof b !== 'object' || b.policy === undefined || !Array.isArray(b.versions) || typeof b.championVersion !== 'string') {
       return res.status(400).json({ error: "INVALID_INPUT" });
     }
 
-    const counts = {};
+    // ... rest of your code remains the same    const counts = {};
     for (const v of b.versions) {
       if (v && typeof v.version === 'string') {
         counts[v.version] = (counts[v.version] || 0) + 1;
