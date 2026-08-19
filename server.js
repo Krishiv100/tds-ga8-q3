@@ -5,7 +5,7 @@ app.use(express.json({ limit: '10mb' }));
 
 // Health check to verify deployment
 app.get('/', (req, res) => {
-  res.send("Server is running and ready for /promote!");
+  res.send("Server is running and ready for /promote! (v3)");
 });
 
 // Catch Express body-parser errors (e.g., malformed JSON)
@@ -21,8 +21,7 @@ function isSafeNonNegativeInt(v) {
 }
 
 function isValidTimestamp(ts) {
-  const regex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?(Z|[+-]\d{2}:\d{2})$/;
-  if (typeof ts !== 'string' || !regex.test(ts)) return false;
+  if (typeof ts !== 'string') return false;
   return !isNaN(new Date(ts).getTime());
 }
 
@@ -47,20 +46,23 @@ function isPolicyValid(p) {
   if (typeof p.accuracyFloor !== 'number' || !Number.isFinite(p.accuracyFloor) || p.accuracyFloor < 0 || p.accuracyFloor > 1) return false;
   if (typeof p.minImprovement !== 'number' || !Number.isFinite(p.minImprovement) || p.minImprovement < 0 || p.minImprovement > 1) return false;
   
-  if (!p.requiredSlices || typeof p.requiredSlices !== 'object') return false;
-  for (const k in p.requiredSlices) {
-    const v = p.requiredSlices[k];
-    if (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || v > 1) return false;
+  if (p.requiredSlices !== undefined) {
+    if (typeof p.requiredSlices !== 'object' || p.requiredSlices === null) return false;
+    for (const k in p.requiredSlices) {
+      const v = p.requiredSlices[k];
+      if (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || v > 1) return false;
+    }
   }
   return true;
 }
 
-// THIS IS THE ROUTE THE GRADER CALLS
 app.post('/promote', (req, res) => {
   try {
     const b = req.body;
 
-    if (!b || typeof b !== 'object' || !b.policy || !Array.isArray(b.versions) || typeof b.championVersion !== 'string' || !isValidTimestamp(b.asOf)) {
+    // ONLY trigger INVALID_INPUT for the explicitly requested cases:
+    // "A missing policy, non-array versions, or non-string championVersion returns HTTP 400 with exactly {"error":"INVALID_INPUT"}."
+    if (!b || typeof b !== 'object' || b.policy === undefined || !Array.isArray(b.versions) || typeof b.championVersion !== 'string') {
       return res.status(400).json({ error: "INVALID_INPUT" });
     }
 
@@ -87,6 +89,7 @@ app.post('/promote', (req, res) => {
       if (!validId) failedGates[vid].add('INVALID_VERSION');
       if (counts[vid] > 1) failedGates[vid].add('DUPLICATE_VERSION');
 
+      // Reject non-canonical and duplicates early
       if (!validId || counts[vid] > 1) continue;
 
       if (!policyValid) {
@@ -102,7 +105,7 @@ app.post('/promote', (req, res) => {
 
       if (!isValidTimestamp(ev.createdAt)) {
         failedGates[vid].add('INVALID_TIMESTAMP');
-      } else {
+      } else if (isValidTimestamp(b.asOf)) {
         const ca = parseTime(ev.createdAt);
         const ao = parseTime(b.asOf);
         if (ca > ao) failedGates[vid].add('FUTURE_EVALUATION');
@@ -193,7 +196,9 @@ app.post('/promote', (req, res) => {
     });
     
   } catch (error) {
-    return res.status(400).json({ error: "INVALID_INPUT" });
+    // If this actually crashes internally, return a 500 instead of masking it as a 400
+    console.error(error);
+    return res.status(500).json({ error: "INTERNAL_SERVER_ERROR" });
   }
 });
 
